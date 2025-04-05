@@ -1,0 +1,660 @@
+import os
+import tempfile
+import time
+import streamlit as st
+from utils.ai_integrations import (
+    process_command_with_openai,
+    process_command_with_anthropic,
+    process_command_with_gemini,
+    process_command_with_openrouter,
+    analyze_video_content,
+    analyze_video_audio,
+    extract_frames_for_analysis
+)
+from utils.video_processor import (
+    process_video,
+    cut_silences,
+    apply_color_adjustment,
+    get_video_info,
+    get_video_thumbnail,
+    save_video
+)
+from utils.interactive_timeline import (
+    InteractiveTimeline,
+    render_interactive_timeline,
+    add_tool_panel,
+    update_timeline_with_tool
+)
+from utils.command_processor import parse_command, execute_command
+from assets.sample_templates import get_template_list, apply_template
+import threading
+
+# Set up page configuration
+st.set_page_config(
+    page_title="AI Video Editor",
+    page_icon="🎬",
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
+
+# Aplicar CSS personalizado
+with open('.streamlit/style.css', 'r') as f:
+    css = f.read()
+    st.markdown(f'<style>{css}</style>', unsafe_allow_html=True)
+
+# Clase para cargar la información del video en segundo plano
+class VideoInfoLoader:
+    def __init__(self):
+        self.is_loading = False
+        self.thread = None
+    
+    def load_info_async(self, video_path):
+        if self.is_loading:
+            return
+        self.is_loading = True
+        self.thread = threading.Thread(target=self._load_video_info, args=(video_path,))
+        self.thread.daemon = True
+        self.thread.start()
+    
+    def _load_video_info(self, video_path):
+        try:
+            # Cargar información real en segundo plano
+            video_info = get_video_info(video_path)
+            st.session_state.video_info = video_info
+            
+            # Inicializar timeline con datos reales
+            st.session_state.interactive_timeline = InteractiveTimeline(video_path)
+        except Exception as e:
+            print(f"Error en carga asíncrona: {str(e)}")
+        finally:
+            self.is_loading = False
+
+# Initialize session state
+if 'interactive_timeline' not in st.session_state:
+    st.session_state.interactive_timeline = InteractiveTimeline()
+if 'uploaded_video' not in st.session_state:
+    st.session_state.uploaded_video = None
+if 'processing_video' not in st.session_state:
+    st.session_state.processing_video = False
+if 'current_video_path' not in st.session_state:
+    st.session_state.current_video_path = None
+if 'video_info' not in st.session_state:
+    st.session_state.video_info = None
+if 'video_info_loader' not in st.session_state:
+    st.session_state.video_info_loader = VideoInfoLoader()
+if 'command_history' not in st.session_state:
+    st.session_state.command_history = []
+if 'temp_dir' not in st.session_state:
+    st.session_state.temp_dir = tempfile.TemporaryDirectory()
+if 'ai_model' not in st.session_state:
+    st.session_state.ai_model = "OpenAI"  # Default model
+if 'selected_tab' not in st.session_state:
+    st.session_state.selected_tab = "AI Commands"
+if 'tool_result' not in st.session_state:
+    st.session_state.tool_result = None
+if 'pending_video_process' not in st.session_state:
+    st.session_state.pending_video_process = False
+
+# Title and description
+st.title("🎬 AI-Powered Video Editor")
+st.markdown("""
+Edita tus videos con comandos en lenguaje natural o usando herramientas interactivas. 
+Carga un video y dile a la IA qué cambios quieres hacer o usa la línea de tiempo interactiva.
+""")
+
+# Sidebar for settings and options
+with st.sidebar:
+    st.header("⚙️ Ajustes")
+    
+    # AI Model Selection
+    st.session_state.ai_model = st.selectbox(
+        "Modelo de IA",
+        ["OpenAI", "Google Gemini", "Anthropic Claude", "OpenRouter"],
+        index=0
+    )
+    
+    # Video Upload Section
+    st.subheader("📤 Cargar Video")
+    
+    # Mostrar una guía rápida para el usuario
+    st.info("💡 **Guía rápida:** Carga tu video y usa los comandos de IA o las herramientas de edición que aparecerán abajo.")
+    
+    # Explicación sobre videos grandes
+    with st.expander("ℹ️ Información sobre carga de videos grandes"):
+        st.write("""
+        - La aplicación acepta videos de hasta 5 GB (aproximadamente 1 hora)
+        - Los videos muy grandes pueden tardar en procesarse
+        - Si experimentas problemas, intenta con un archivo más pequeño primero
+        """)
+    
+    # Métodos de carga (pestañas)
+    tab_file, tab_url = st.tabs(["📁 Desde archivo", "🔗 Desde URL"])
+    
+    temp_path = None
+    uploaded_video_name = None
+    
+    with tab_file:
+        with st.form("upload_form", clear_on_submit=False):
+            uploaded_file = st.file_uploader("Elige un archivo de video", 
+                                          type=['mp4', 'mov', 'avi', 'mkv'], 
+                                          accept_multiple_files=False,
+                                          help="Selecciona un archivo de video de tu dispositivo")
+            submit_button = st.form_submit_button("Cargar Video", type="primary")
+            
+            if submit_button and uploaded_file is not None:
+                st.session_state.processing_video = True
+                try:
+                    # Mostrar barra de progreso para archivos grandes
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # Guardar el archivo cargado en bloques
+                    status_text.text("Guardando el video...")
+                    temp_path = os.path.join(st.session_state.temp_dir.name, uploaded_file.name)
+                    chunk_size = 5*1024*1024  # 5MB por bloque
+                    file_buffer = uploaded_file.getbuffer()
+                    total_chunks = (len(file_buffer) // chunk_size) + 1
+                    
+                    with open(temp_path, 'wb') as f:
+                        for i in range(0, len(file_buffer), chunk_size):
+                            chunk_num = i // chunk_size
+                            progress = min(1.0, chunk_num / total_chunks)
+                            progress_bar.progress(progress)
+                            status_text.text(f"Guardando video: {int(progress*100)}% completado")
+                            f.write(file_buffer[i:i+chunk_size])
+                    
+                    uploaded_video_name = uploaded_file.name
+                    
+                    # Cargar el video inmediatamente sin procesamiento adicional
+                    st.session_state.current_video_path = temp_path
+                    st.session_state.uploaded_video = type('obj', (object,), {'name': uploaded_video_name})
+                    
+                    # Carga mínima de información para mostrar el video rápidamente
+                    st.session_state.video_info = {
+                        "duration": 0.0,
+                        "size": (1280, 720),
+                        "fps": 30.0
+                    }
+                    
+                    # Inicialización ligera de la línea de tiempo
+                    st.session_state.interactive_timeline = InteractiveTimeline()
+                    
+                    # Iniciar la carga de información real en segundo plano
+                    st.session_state.video_info_loader.load_info_async(temp_path)
+                    # Finalizar
+                    st.session_state.processing_video = False
+                    progress_bar.progress(100)
+                    status_text.success(f"✅ Video listo: {uploaded_video_name}")
+                except Exception as e:
+                    st.error(f"Error cargando el video: {str(e)}")
+                    st.session_state.processing_video = False
+    
+    with tab_url:
+        with st.form("url_form", clear_on_submit=False):
+            video_url = st.text_input("Introduce la URL del video:",
+                                   help="Introduce una URL directa a un archivo de video (.mp4, .mov, .avi, .mkv)")
+            submit_url_button = st.form_submit_button("Descargar Video", type="primary")
+            
+            if submit_url_button and video_url:
+                st.session_state.processing_video = True
+                try:
+                    # Mostrar barra de progreso
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    status_text.text(f"Conectando a {video_url}...")
+                    
+                    # Descargar el video
+                    import requests
+                    response = requests.get(video_url, stream=True)
+                    if response.status_code != 200:
+                        raise Exception(f"Error al descargar el video: Código {response.status_code}")
+                    
+                    # Obtener el tamaño total si está disponible
+                    total_size = int(response.headers.get('content-length', 0))
+                    
+                    # Crear un nombre de archivo para el video descargado
+                    video_filename = video_url.split('/')[-1]
+                    if not video_filename.endswith(('.mp4', '.mov', '.avi', '.mkv')):
+                        video_filename = f"video_descargado.mp4"
+                    
+                    temp_path = os.path.join(st.session_state.temp_dir.name, video_filename)
+                    
+                    # Descargar en bloques con barra de progreso
+                    downloaded = 0
+                    with open(temp_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB por chunk
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    progress = min(1.0, downloaded / total_size)
+                                    progress_bar.progress(progress)
+                                    status_text.text(f"Descargando video: {int(progress*100)}% completado")
+                    
+                    uploaded_video_name = video_filename
+                    
+                    # Cargar el video inmediatamente sin procesamiento adicional
+                    st.session_state.current_video_path = temp_path
+                    st.session_state.uploaded_video = type('obj', (object,), {'name': uploaded_video_name})
+                    
+                    # Carga mínima de información para mostrar el video rápidamente
+                    st.session_state.video_info = {
+                        "duration": 0.0,
+                        "size": (1280, 720),
+                        "fps": 30.0
+                    }
+                    
+                    # Inicialización ligera de la línea de tiempo
+                    # Iniciar la carga de información real en segundo plano
+                    st.session_state.video_info_loader.load_info_async(temp_path)
+                    st.session_state.interactive_timeline = InteractiveTimeline()
+                    
+                    # Finalizar
+                    st.session_state.processing_video = False
+                    progress_bar.progress(100)
+                    status_text.success(f"✅ Video listo: {uploaded_video_name}")
+                except Exception as e:
+                    st.error(f"Error descargando el video: {str(e)}")
+                    st.session_state.processing_video = False
+    
+    # Ya no necesitamos procesar el video aquí, se inicializa directamente durante la carga
+    
+    # Show templates when a video is loaded
+    if st.session_state.uploaded_video is not None:
+        st.subheader("🎨 Plantillas de Video")
+        templates = get_template_list()
+        selected_template = st.selectbox("Elige una plantilla", list(templates.keys()))
+        
+        if st.button("Aplicar Plantilla"):
+            with st.spinner("Aplicando plantilla..."):
+                try:
+                    new_video_path = apply_template(
+                        st.session_state.current_video_path, 
+                        templates[selected_template]
+                    )
+                    st.session_state.current_video_path = new_video_path
+                    
+                    # Actualizar la línea de tiempo interactiva
+                    st.session_state.interactive_timeline = InteractiveTimeline(new_video_path)
+                    
+                    st.success(f"Plantilla aplicada: {selected_template}")
+                except Exception as e:
+                    st.error(f"Error aplicando la plantilla: {str(e)}")
+
+# Mostrar siempre la guía rápida para hacer la interfaz más clara
+st.header("🎬 EDITOR DE VIDEO INTELIGENTE")
+
+# Mostrar video si está cargado
+if st.session_state.current_video_path:
+    # Crear dos columnas, una para el video y otra para la guía rápida
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.subheader("🎥 Video Actual")
+        
+        # Video information
+        if st.session_state.video_info:
+            info = st.session_state.video_info
+            st.write(f"Duración: {info['duration']:.2f} segundos | Resolución: {info['size'][0]}x{info['size'][1]} | FPS: {info['fps']:.2f}")
+        
+        # Display the video
+        st.video(st.session_state.current_video_path)
+    
+    with col2:
+        st.subheader("🚀 Guía Rápida")
+        st.markdown("""
+        ### Herramientas Disponibles:
+        
+        1. **💬 Comandos de IA**:
+           - Escribe instrucciones en lenguaje natural
+           - Ejemplos:
+           - "Corta los primeros 5 segundos"
+           - "Añade un título al inicio"
+           - "Haz el video más rápido"
+        
+        2. **⚙️ Herramientas manuales**:
+           - Línea de tiempo interactiva
+           - Cortar segmentos
+           - Ajustes de color
+           - Añadir texto y efectos
+           - Filtros visuales
+           
+        3. **🎬 Plantillas**:
+           - Aspecto cinematográfico
+           - Vintage
+           - Redes sociales
+        """)
+else:
+    # Si no hay video, mostrar un mensaje claro para el usuario
+    st.info("👆 **Primer paso**: Carga un video usando las opciones de arriba. Una vez cargado, aparecerá aquí y podrás editarlo con las herramientas de abajo.")
+    
+    # Añadir una pequeña guía visual
+    st.markdown("""
+    ### 🛠️ Herramientas que estarán disponibles después de cargar un video:
+    
+    **1️⃣ Comandos de IA:** Edita tu video con instrucciones en lenguaje natural  
+    **2️⃣ Editor Visual:** Usa la línea de tiempo y herramientas profesionales  
+    **3️⃣ Plantillas:** Aplica estilos predefinidos con un solo clic  
+    """)
+
+# Divisor claro
+st.markdown("---")
+
+# Mostrar siempre las pestañas, pero deshabilitar las funciones si no hay video
+# Crear pestañas más grandes y visibles
+tab1, tab2, tab3, tab4 = st.tabs(["🤖 COMANDOS DE IA", "🎬 EDITOR VISUAL", "🎨 PLANTILLAS", "🔍 ANÁLISIS DE CONTENIDO"])
+
+# Pestaña de comandos de IA
+with tab1:
+    st.subheader("🤖 Edición por Comandos de Lenguaje Natural")
+    
+    # Ejemplos de comandos
+    with st.expander("📚 Ver ejemplos de comandos"):
+        st.markdown("""
+        ### Ejemplos de comandos que puedes usar:
+        - "Corta los primeros 5 segundos del video"
+        - "Ajusta el brillo y contraste para que se vea mejor"
+        - "Convierte el video a blanco y negro"
+        - "Añade el título 'Mi Aventura' al inicio del video con fuente grande"
+        - "Haz que el video sea un 50% más rápido"
+        - "Añade un efecto de desvanecimiento al final"
+        - "Elimina las partes silenciosas del video"
+        - "Añade un filtro cálido de color"
+        - "Cambia el tamaño del video a formato cuadrado para Instagram"
+        - "Añade subtítulos automáticos"
+        """)
+    
+    command = st.text_area("💬 Ingresa tu comando de edición:", 
+                         height=100,
+                         help="Describe los cambios que quieres hacer al video en lenguaje natural.",
+                         placeholder="Ej: Reduce la velocidad del video a la mitad, aplica un filtro de color cálido y añade el título 'Mi Aventura'")
+    
+    # Mostrar botón incluso si no hay video (pero deshabilitarlo)
+    button_disabled = st.session_state.current_video_path is None
+    if button_disabled:
+        st.info("⚠️ Primero debes cargar un video para poder procesar comandos")
+        
+    if st.button("🔥 Procesar Comando", type="primary", use_container_width=True, disabled=button_disabled):
+        if command:
+            # Crear componentes para indicar el progreso
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                # FASE 1: Procesamiento de IA (25%)
+                status_text.info("🧠 Analizando tu comando con IA...")
+                
+                # Check if the command is in cache
+                command_cache_key = f"{st.session_state.ai_model}_{command}"
+                if 'command_cache' not in st.session_state:
+                    st.session_state.command_cache = {}
+                
+                # Use cached result if available
+                if command_cache_key in st.session_state.command_cache:
+                    ai_response = st.session_state.command_cache[command_cache_key]
+                else:
+                    # Determine which AI model to use
+                    if st.session_state.ai_model == "OpenAI":
+                        ai_response = process_command_with_openai(command, st.session_state.interactive_timeline)
+                    elif st.session_state.ai_model == "Anthropic Claude":
+                        ai_response = process_command_with_anthropic(command, st.session_state.interactive_timeline)
+                    elif st.session_state.ai_model == "Google Gemini":
+                        ai_response = process_command_with_gemini(command, st.session_state.interactive_timeline)
+                    else:  # OpenRouter
+                        ai_response = process_command_with_openrouter(command, st.session_state.interactive_timeline)
+                    
+                    # Cache the result for future use
+                    st.session_state.command_cache[command_cache_key] = ai_response
+                
+                progress_bar.progress(25)
+                status_text.info("✅ Comando analizado, interpretando operaciones...")
+                
+                # FASE 2: Parseo del comando (50%)
+                operations = parse_command(command, ai_response)
+                progress_bar.progress(50)
+                status_text.info("✅ Operaciones interpretadas, aplicando cambios al video...")
+                
+                # FASE 3: Ejecución de operaciones (75%)
+                message, new_video_path = execute_command(
+                    operations, 
+                    st.session_state.current_video_path,
+                    st.session_state.temp_dir.name
+                )
+                
+                progress_bar.progress(75)
+                status_text.info("✅ Cambios aplicados, finalizando procesamiento...")
+                
+                # FASE 4: Actualización de la UI (100%)
+                # Update the current video path if a new video was generated
+                if new_video_path:
+                    st.session_state.current_video_path = new_video_path
+                    st.session_state.video_info = get_video_info(new_video_path)
+                    
+                    # Actualizar la línea de tiempo interactiva
+                    st.session_state.interactive_timeline = InteractiveTimeline(new_video_path)
+                
+                # Add to command history
+                st.session_state.command_history.append({
+                    "command": command,
+                    "operations": operations,
+                    "result": message
+                })
+                
+                progress_bar.progress(100)
+                status_text.success(f"✅ {message}")
+                
+                # Recargar sin espera
+                st.rerun()
+            except Exception as e:
+                progress_bar.empty()
+                status_text.error(f"❌ Error: {str(e)}")
+        else:
+            st.warning("⚠️ Por favor, ingresa un comando.")
+    
+    # Command History
+    if st.session_state.command_history:
+        st.subheader("📝 Historial de Comandos")
+        for i, cmd in enumerate(st.session_state.command_history):
+            with st.expander(f"Comando {i+1}: {cmd['command'][:50]}..."):
+                st.write(f"**Comando:** {cmd['command']}")
+                st.write(f"**Resultado:** {cmd['result']}")
+                st.write("**Operaciones:**")
+                for op in cmd['operations']:
+                    st.write(f"- Tipo: {op.get('type', 'Desconocido')}")
+                    st.write(f"  Parámetros: {op.get('params', {})}")
+                    st.write(f"  Posición en la línea de tiempo: {op.get('timeline_position', 'todo')}")
+                    st.write("---")
+
+# Pestaña de herramientas de edición
+with tab2:
+    st.subheader("🎬 Editor de Video Profesional")
+    
+    # Mensaje si no hay video cargado
+    if st.session_state.current_video_path is None:
+        st.info("⚠️ Para usar el editor visual, primero debes cargar un video")
+        st.markdown("""
+        ### Funciones disponibles del editor visual:
+        
+        - **Línea de tiempo interactiva**: Para seleccionar partes específicas del video
+        - **Ajustes de color**: Brillo, contraste, saturación, etc.
+        - **Efectos visuales**: Filtros, efectos de transición, desenfoque
+        - **Edición de audio**: Ajuste de volumen, silenciado, efectos
+        - **Títulos y textos**: Añadir texto superpuesto al video
+        """)
+    else:
+        # Mostrar información sobre el editor visual
+        st.markdown("""
+        Este editor te permite controlar con precisión la edición de tu video:
+        1. **Línea de tiempo interactiva**: Visualiza y edita tu video
+        2. **Herramientas avanzadas**: Cortes, efectos, transiciones y más
+        3. **Control preciso**: Ajusta cada parámetro según tus necesidades
+        """)
+        
+        # Renderizar la línea de tiempo interactiva
+        timeline_events = render_interactive_timeline(st.session_state.interactive_timeline)
+        
+        # Añadir panel de herramientas
+        st.subheader("🧰 Herramientas Disponibles")
+        tool_result = add_tool_panel(st.session_state.interactive_timeline)
+        
+        # Si se selecciona una herramienta
+        if tool_result["tool_selected"]:
+            st.session_state.tool_result = tool_result
+            
+            # Mostrar información sobre la herramienta seleccionada
+            st.info(f"📌 Herramienta seleccionada: **{tool_result['tool_name']}**")
+            
+            # Confirmar la aplicación de la herramienta
+            if st.button("✅ APLICAR CAMBIOS AL VIDEO", key="apply_tool", type="primary", use_container_width=True):
+                # Crear componentes para indicar el progreso
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    # FASE 1: Preparación (25%)
+                    status_text.info(f"⚙️ Preparando herramienta: {tool_result['tool_name']}...")
+                    progress_bar.progress(25)
+                    time.sleep(0.5)  # Breve pausa para que el usuario vea el progreso
+                    
+                    # FASE 2: Aplicación de la herramienta (50%)
+                    status_text.info(f"🔧 Aplicando cambios al video...")
+                    progress_bar.progress(50)
+                    
+                    # Aplicar la herramienta
+                    new_video_path, result_message = update_timeline_with_tool(
+                        st.session_state.interactive_timeline,
+                        tool_result,
+                        st.session_state.current_video_path
+                    )
+                    
+                    if new_video_path:
+                        # FASE 3: Procesamiento final (75%)
+                        status_text.info("🎬 Actualizando línea de tiempo...")
+                        progress_bar.progress(75)
+                        time.sleep(0.5)  # Breve pausa para que el usuario vea el progreso
+                        
+                        # FASE 4: Actualización de la UI (100%)
+                        st.session_state.current_video_path = new_video_path
+                        st.session_state.video_info = get_video_info(new_video_path)
+                        
+                        # Actualizar la línea de tiempo interactiva
+                        st.session_state.interactive_timeline = InteractiveTimeline(new_video_path)
+                        
+                        progress_bar.progress(100)
+                        status_text.success(f"✅ {result_message}")
+                        
+                        # Dar tiempo al usuario para ver el resultado antes de recargar
+                        time.sleep(1.0)
+                        st.rerun()
+                    else:
+                        progress_bar.empty()
+                        status_text.error(f"❌ {result_message}")
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.error(f"❌ Error: {str(e)}")
+
+# Pestaña de plantillas
+with tab3:
+    st.subheader("🎨 Plantillas Profesionales")
+    
+    # Mensaje si no hay video cargado
+    if st.session_state.current_video_path is None:
+        st.info("⚠️ Para aplicar plantillas, primero debes cargar un video")
+        st.markdown("""
+        ### Plantillas disponibles:
+        
+        - **Cinematográfica**: Aspecto de película con bandas negras y colores cinematográficos
+        - **Vintage**: Estilo retro con grano de película y efectos de color antiguo
+        - **Redes Sociales**: Optimización para Instagram, TikTok y otras plataformas
+        - **Vlog**: Colores vibrantes y transiciones modernas
+        - **Blanco y Negro**: Clásico monocromático con alto contraste
+        """)
+    else:
+        # Información sobre las plantillas
+        st.markdown("""
+        Aplica estilos profesionales con un solo clic:
+        - Mejora la apariencia de tu video
+        - Ahorra tiempo con ajustes preconfigurados
+        - Prueba diferentes estilos
+        """)
+        
+        # Mostrar plantillas disponibles
+        templates = get_template_list()
+        
+        # Crear columnas para mostrar las plantillas con miniaturas
+        template_cols = st.columns(3)
+        
+        # Información de plantilla seleccionada
+        selected_template = st.selectbox("Elige una plantilla:", list(templates.keys()))
+        
+        # Mostrar descripción de la plantilla
+        st.info(f"**{selected_template}:** Transforma tu video con un aspecto profesional.")
+        
+        # Botón grande para aplicar la plantilla
+        if st.button("✨ APLICAR PLANTILLA", type="primary", use_container_width=True):
+            # Crear componentes para indicar el progreso
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                # FASE 1: Preparación (25%)
+                status_text.info(f"🎬 Preparando plantilla {selected_template}...")
+                progress_bar.progress(25)
+                time.sleep(0.5)  # Breve pausa para que el usuario vea el progreso
+                
+                # FASE 2: Aplicación de la plantilla (50%)
+                status_text.info(f"🎬 Aplicando efectos de {selected_template}...")
+                progress_bar.progress(50)
+                
+                # Aplicar la plantilla
+                new_video_path = apply_template(
+                    st.session_state.current_video_path, 
+                    templates[selected_template]
+                )
+                
+                # FASE 3: Procesamiento final (75%)
+                status_text.info("🎬 Procesando video final...")
+                progress_bar.progress(75)
+                time.sleep(0.5)  # Breve pausa para que el usuario vea el progreso
+                
+                # FASE 4: Actualización de la UI (100%)
+                st.session_state.current_video_path = new_video_path
+                
+                # Actualizar la línea de tiempo interactiva
+                st.session_state.interactive_timeline = InteractiveTimeline(new_video_path)
+                
+                progress_bar.progress(100)
+                status_text.success(f"✅ Plantilla aplicada: {selected_template}")
+                
+                # Dar tiempo al usuario para ver el resultado antes de recargar
+                time.sleep(1.0)
+                st.rerun()
+            except Exception as e:
+                progress_bar.empty()
+                status_text.error(f"❌ Error aplicando la plantilla: {str(e)}")
+
+# Save Video Button
+if st.session_state.current_video_path:
+    st.subheader("💾 Guardar Video Editado")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        output_filename = st.text_input("Nombre del archivo de salida:", 
+                                      value=f"editado_{os.path.basename(st.session_state.current_video_path)}",
+                                      help="Introduce el nombre para el video editado.")
+    
+    with col2:
+        if st.button("Guardar Video", type="primary"):
+            with st.spinner("Guardando video..."):
+                try:
+                    saved_path = save_video(st.session_state.current_video_path, output_filename)
+                    st.success(f"Video guardado como: {output_filename}")
+                    st.download_button(
+                        label="⬇️ Descargar Video",
+                        data=open(saved_path, "rb").read(),
+                        file_name=output_filename,
+                        mime="video/mp4"
+                    )
+                except Exception as e:
+                    st.error(f"Error guardando el video: {str(e)}")

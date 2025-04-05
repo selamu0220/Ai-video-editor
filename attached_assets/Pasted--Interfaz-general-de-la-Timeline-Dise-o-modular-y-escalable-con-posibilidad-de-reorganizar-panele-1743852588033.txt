@@ -1,0 +1,115 @@
+🧠 Interfaz general de la Timeline
+Diseño modular y escalable, con posibilidad de reorganizar paneles con drag & drop.
+
+Fondo oscuro y neutro, para no matar tus ojos tras 10 horas de edición.
+
+Zoom fluido con scroll + tecla modificadora (como Alt) o atajos personalizables.
+
+Scroll horizontal infinito con imanes inteligentes para ajustes rápidos sin saltos bruscos.
+
+Vista multi-pista vertical ajustable: puedes hacer que una pista ocupe toda la pantalla o comprimirlas para ver más.
+
+Mini visor de previsualización flotante, que sigue al cursor o al clip que estás tocando.
+
+🔥 Pistas de la Timeline
+1. Video
+Soporte para múltiples pistas de video (mínimo 10, sin que sufra el rendimiento).
+
+Clips con miniaturas activables o no (por si estás en modo rendimiento extremo).
+
+Cada clip muestra:
+
+Nombre del archivo
+
+Íconos de efectos, transiciones, keyframes
+
+Color de pista personalizable (para organización visual rápida)
+
+Opciones de agrupación:
+
+Anidar clips en "compounds"
+
+Agrupar/desagrupar con un atajo
+
+"Sync groups" para mantener clips sincronizados automáticamente con audio o cámara
+
+2. Audio
+Pistas independientes por canal (Mono, Stereo, Surround, etc.)
+
+Formas de onda súper precisas, con colores personalizables.
+
+Modo de mezcla integrado: cada pista tiene su medidor de volumen, compresor, EQ, y automations sin salir de la timeline.
+
+Clips de audio con opción de “ducking” automático (que detecta voz y baja música de fondo, porque no tienes tiempo para eso a mano).
+
+3. Títulos y gráficos
+Pistas especiales para títulos animados, lower thirds, etc.
+
+Previsualización directa de animaciones simples (roll, fade, scale).
+
+Compatibilidad directa con plantillas de Motion Graphics (.mogrt o similares), y controladores editables desde la timeline.
+
+Edición en línea: doble click sobre el título = aparece el campo editable flotante.
+
+4. Marcadores inteligentes
+Colores, nombres y etiquetas personalizadas.
+
+Puedes marcar inicios de sección, errores, comentarios de cliente.
+
+Marcadores con anotaciones: al pasar el mouse, aparece el comentario flotante.
+
+Opción de generar lista de marcadores en PDF o enviar como notas al equipo.
+
+🧩 Funcionalidades clave
+🧠 Inteligencia contextual
+Detección de silencio para dividir clips automáticamente.
+
+Análisis de ritmo para detectar cortes lógicos basados en música.
+
+Sugerencias de transición automática (ej: “este corte abrupto podría usar un crossfade”).
+
+🎛 Keyframes nivel ninja
+Sistema de keyframes con curvas tipo Bézier directamente editables en la pista.
+
+Posibilidad de aplicar presets de animación (zoom suave, entrada lateral, etc.)
+
+Keyframes por propiedad (posición, escala, opacidad, color, audio) visibles y filtrables.
+
+📦 Collapsables y Nesting
+Pistas colapsables para reducir ruido visual.
+
+Nidos que pueden abrirse sin salir de la timeline principal.
+
+Reemplazo automático: cambia un clip y mantiene efectos/keyframes del anterior.
+
+💡 Metadata y etiquetas
+Cada clip puede tener etiquetas, notas, ratings, y hasta mini thumbnails alternativos.
+
+Sistema de “Favoritos” para marcar clips usados o importantes.
+
+Filtros en timeline: “solo mostrar clips con etiqueta ‘slowmo’” o “mostrar solo clips sin efectos aplicados”.
+
+🎮 Atajos y personalización extrema
+Cualquier acción se puede mapear a un atajo personalizado.
+
+Presets de teclado para distintos programas (Resolve, Premiere, Avid, Final Cut…).
+
+Botones contextuales flotantes (ej. si seleccionas 2 clips, aparece “Añadir transición”).
+
+Compatibilidad con superficies como Stream Deck, Loupedeck, y tablets táctiles.
+
+🕹 Integración en tiempo real
+Sincronización automática con una carpeta de assets: si se añade un archivo nuevo, aparece en la media pool.
+
+Renderizado en background para no romper tu flow.
+
+Revisión colaborativa: feedback de clientes se muestra en la timeline como notas vinculadas a clips específicos.
+
+🪄 Bonus: Cosas que no sabías que necesitabas
+"Modo cliente": renderiza un preview de proyecto con marca de agua y timecode sin tocar tu proyecto final.
+
+Timeline de cambios: ver qué clip cambió, quién lo tocó, y cuándo.
+
+Modo Focus: enfoca solo la parte del proyecto en la que estás trabajando, ocultando el resto temporalmente.
+
+Modo "Zen": pantalla limpia, solo la timeline y el visor, para editar sin distracciones.

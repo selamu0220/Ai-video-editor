@@ -1,0 +1,387 @@
+Detalles del Estilo de Red Creativa
+
+Paleta de Colores
+
+La web utiliza una paleta de colores minimalista y elegante:
+
+
+
+
+
+Fondo principal: Beige claro (#f3f1ea) - Este color crea una base cálida y sofisticada para todo el sitio.
+
+
+
+Fondo secundario: Beige oscuro (#DCD5C1) - Utilizado para gradientes y elementos de acento.
+
+
+
+Texto principal: Negro (#000000) - Proporciona un alto contraste sobre el fondo beige.
+
+
+
+Botones principales: Negro (#000000) con texto blanco - Crea un contraste fuerte y elegante.
+
+
+
+Tarjetas y elementos de contenido: Blanco (#FFFFFF) - Destaca sobre el fondo beige.
+
+
+
+Elementos de acento: Bordes sutiles en #E8E8E8 - Añade definición sin ser intrusivo.
+
+Tipografía
+
+El sitio utiliza una combinación sofisticada de fuentes:
+
+
+
+
+
+Instrument Sans: Fuente principal para texto de cuerpo, navegación y elementos de interfaz.
+
+
+
+Pesos utilizados: 300 (light), 400 (regular), 500 (medium), 600 (semibold)
+
+
+
+Aplicada con la clase font-instrument-sans
+
+
+
+Instrument Serif: Fuente para títulos y encabezados principales.
+
+
+
+Peso utilizado: 400 (regular)
+
+
+
+Aplicada con la clase font-instrument-serif
+
+
+
+Instrument Serif Italic: Variante itálica para acentos y énfasis.
+
+
+
+Peso utilizado: 400 (regular)
+
+
+
+Aplicada con la clase font-instrument-serif-italic
+
+Jerarquía Tipográfica
+
+
+
+
+
+Títulos principales:
+
+
+
+Tamaño grande (text-[64px])
+
+
+
+Altura de línea generosa (leading-[83px])
+
+
+
+Fuente Instrument Serif
+
+
+
+Ejemplo en el Hero: <span className="font-instrument-serif font-normal">Red Creativa: </span>
+
+
+
+Subtítulos:
+
+
+
+Tamaño mediano (text-[28px])
+
+
+
+Peso light (font-light)
+
+
+
+Fuente Instrument Sans
+
+
+
+Ejemplo: <p className="text-[28px] text-center font-instrument-sans font-light">
+
+
+
+Texto de navegación:
+
+
+
+Tamaño pequeño (text-[13px])
+
+
+
+Peso medium (font-medium)
+
+
+
+Transiciones suaves en hover (transition-colors)
+
+Espaciado y Layout
+
+
+
+
+
+Header: Altura fija de 66px (h-[66px]), fijado en la parte superior con fondo semi-transparente y efecto de desenfoque.
+
+
+
+Secciones:
+
+
+
+Espaciado vertical generoso entre secciones (py-24, py-16)
+
+
+
+Contenedor centrado con padding horizontal (container mx-auto px-4)
+
+
+
+Elementos de interfaz:
+
+
+
+Botones con dimensiones específicas (ejemplo: width: "227px", height: "49px")
+
+
+
+Bordes redondeados sutiles para tarjetas y botones (rounded-[10px], rounded-lg)
+
+Componentes UI
+
+Header
+
+
+
+
+
+Fijo en la parte superior (fixed top-0)
+
+
+
+Fondo semi-transparente con efecto de desenfoque (bg-[#F2F1EA]/80 backdrop-blur-lg)
+
+
+
+Borde inferior sutil (border-b-2 border-[#E8E8E8])
+
+Hero
+
+
+
+
+
+Espaciado superior amplio para compensar el header fijo (pt-32)
+
+
+
+Título grande con combinación de fuentes serif regular e itálica
+
+
+
+Subtítulo en sans-serif light
+
+
+
+Botón de acción negro con texto blanco
+
+Tarjetas (Cards)
+
+
+
+
+
+Fondo blanco (bg-white)
+
+
+
+Padding interno consistente (p-4)
+
+
+
+Bordes redondeados (rounded-lg)
+
+
+
+Sombras sutiles en algunos casos
+
+Botones
+
+
+
+
+
+Botón principal: Negro con texto blanco, bordes redondeados
+
+
+
+Botón secundario: Variante outline
+
+
+
+Transiciones suaves en hover (transition-colors, hover:bg-black/90)
+
+Footer
+
+
+
+
+
+Fondo negro (bg-black) con texto blanco
+
+
+
+Espaciado vertical generoso (py-12)
+
+
+
+Disposición flexible que se adapta a diferentes tamaños de pantalla
+
+Efectos y Transiciones
+
+
+
+
+
+Transiciones de color: Suaves al hacer hover sobre enlaces y botones (transition-colors)
+
+
+
+Opacidad: Cambios sutiles en hover para elementos en el footer (hover:opacity-80)
+
+
+
+Transiciones de tema: Cambios suaves al alternar entre temas claro y oscuro
+
+Responsividad
+
+
+
+
+
+Mobile-first: Diseño que se adapta desde móvil hacia arriba
+
+
+
+Breakpoints:
+
+
+
+md: Pantallas medianas (768px+)
+
+
+
+lg: Pantallas grandes (1024px+)
+
+
+
+Adaptaciones:
+
+
+
+Cambios en la disposición de columnas (grid-cols-1 md:grid-cols-2 lg:grid-cols-3)
+
+
+
+Ajustes de padding y márgenes
+
+
+
+Ocultación/mostrado de elementos según el tamaño (hidden md:flex)
+
+Detalles Específicos
+
+Sección Hero
+
+
+
+
+
+Texto en mayúsculas con tracking amplio para la introducción (uppercase tracking-[0.51em])
+
+
+
+Título grande con combinación de estilos serif y serif-italic
+
+
+
+Botón de acción con flecha a la derecha
+
+Sección de Herramientas
+
+
+
+
+
+Título grande alineado a la izquierda
+
+
+
+Grid de 3 columnas en desktop, 1 en móvil
+
+
+
+Tarjetas con imágenes destacadas y títulos en serif
+
+Footer
+
+
+
+
+
+Fondo negro contrastante
+
+
+
+Logo/nombre en serif
+
+
+
+Enlaces de navegación en sans-serif
+
+
+
+Mensaje de cierre con acento de corazón rojo
+
+Características Técnicas
+
+
+
+
+
+Tailwind CSS: Utilizado para todos los estilos
+
+
+
+Colores personalizados: Definidos en tailwind.config.js
+
+
+
+Fuentes personalizadas: Cargadas con next/font y localFont
+
+
+
+Variables CSS: Utilizadas para temas claro/oscuro
+
+
+
+Transiciones suaves: Aplicadas globalmente para cambios de color y fondo
+
+Este estilo minimalista y elegante crea una experiencia de usuario sofisticada que pone el foco en el contenido mientras mantiene una identidad visual distintiva y profesional.

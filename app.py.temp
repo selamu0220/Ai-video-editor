@@ -1,0 +1,4 @@
+
+# Iniciar la carga de información real en segundo plano
+st.session_state.video_info_loader.load_info_async(temp_path)
+
