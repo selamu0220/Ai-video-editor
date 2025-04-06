@@ -1,0 +1,67 @@
+import subprocess
+import json
+import base64
+from PIL import Image
+import io
+from typing import List, Dict, Any
+
+def extract_frames(video_path: str, interval: int = 5) -> List[str]:
+    """Extrae frames usando FFmpeg directamente"""
+    try:
+        # Extraer un frame usando ffmpeg
+        cmd = [
+            'ffmpeg', '-i', video_path,
+            '-vf', f'fps=1/{interval}',
+            '-vframes', '1',
+            '-f', 'image2pipe',
+            '-vcodec', 'mjpeg',
+            '-'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, check=True)
+        
+        # Procesar el frame con PIL
+        img = Image.open(io.BytesIO(result.stdout))
+        img = img.resize((640, 360))
+        
+        # Convertir a base64
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=85)
+        frame_base64 = base64.b64encode(buffer.getvalue()).decode()
+        
+        return [frame_base64]
+        
+    except Exception as e:
+        print(f"Error extrayendo frames: {e}")
+        return []
+
+def get_video_info(video_path: str) -> Dict[str, Any]:
+    """Obtiene información básica del video"""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format', '-show_streams',
+            video_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        info = json.loads(result.stdout)
+        
+        # Extraer información relevante
+        video_stream = next(
+            (s for s in info.get('streams', []) 
+             if s.get('codec_type') == 'video'),
+            {}
+        )
+        
+        return {
+            'duration': float(info.get('format', {}).get('duration', 0)),
+            'width': int(video_stream.get('width', 0)),
+            'height': int(video_stream.get('height', 0)),
+            'fps': eval(video_stream.get('r_frame_rate', '0/1'))
+        }
+        
+    except Exception as e:
+        print(f"Error obteniendo info del video: {e}")
+        return {}
