@@ -1,21 +1,9 @@
-# Core app dependencies
+# Core
 streamlit==1.32.0
 python-dotenv==1.0.1
-httpx==0.27.0
-watchdog==4.0.0
 
-# Procesamiento y visualización
-numpy==1.26.4
-pandas==2.2.1
-matplotlib==3.8.3
-pillow==10.2.0
+# Image processing
+Pillow==10.0.0
 
-# Video y multimedia
-opencv-python-headless==4.8.0.76
-moviepy==1.0.3
-ffmpeg-python==0.2.0
-scikit-image==0.22.0
-scikit-video==1.1.11
-
-# IA / Google Gemini
+# AI
 google-generativeai==0.3.2
