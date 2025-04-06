@@ -9,14 +9,29 @@ import threading
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Verificar dependencias necesarias
-try:
-    from utils.video_handler import extract_frames, get_video_info
-    from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
-except ImportError as e:
-    st.error(f"Error importando dependencias: {str(e)}")
-    logger.error(f"Error de importación: {e}")
-    sys.exit(1)
+# Verificar dependencias necesarias de manera más robusta
+def check_dependencies():
+    try:
+        from utils.video_handler import extract_frames, get_video_info
+        from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
+        return True
+    except ImportError as e:
+        st.error(f"Error importando dependencias: {str(e)}")
+        logger.error(f"Error de importación: {e}")
+        return False
+
+# Asegurarse que el directorio raíz está en el path
+current_dir = Path(__file__).parent
+sys.path.append(str(current_dir))
+
+# Verificar dependencias antes de continuar
+if not check_dependencies():
+    st.error("Error crítico: No se pudieron cargar las dependencias necesarias")
+    st.stop()
+
+# Importar después de verificar
+from utils.video_handler import extract_frames, get_video_info
+from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
