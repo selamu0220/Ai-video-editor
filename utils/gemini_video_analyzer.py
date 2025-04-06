@@ -1,77 +1,62 @@
+import sys
 import os
+import logging
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple
 import base64
-import tempfile
 import json
+from .video_handler import extract_frames, get_video_info
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def initialize_opencv():
+    """Inicializa OpenCV con manejo robusto de errores"""
+    try:
+        # Intentar instalar dependencias del sistema primero
+        subprocess.check_call(["apt-get", "update"], stderr=subprocess.DEVNULL)
+        subprocess.check_call([
+            "apt-get", "install", "-y",
+            "python3-opencv",
+            "libgl1-mesa-glx",
+            "libglib2.0-0",
+            "libsm6",
+            "libxext6",
+            "libxrender1"
+        ], stderr=subprocess.DEVNULL)
+        
+        # Desinstalar versiones existentes de OpenCV
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "uninstall", "-y",
+            "opencv-python", "opencv-python-headless"
+        ], stderr=subprocess.DEVNULL)
+        
+        # Instalar versión específica
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "opencv-python-headless==4.5.5.64"
+        ])
+        
+        import cv2
+        logger.info(f"OpenCV {cv2.__version__} inicializado correctamente")
+        return cv2
+    except Exception as e:
+        logger.error(f"Error crítico inicializando OpenCV: {e}")
+        raise RuntimeError(f"No se pudo inicializar OpenCV: {e}")
+
+# Inicializar OpenCV
+cv2 = initialize_opencv()
+
+import tempfile
 import subprocess
 import traceback
-from typing import Dict, Any, List, Optional, Tuple
 import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 import ffmpeg
-import cv2
 import numpy as np
 import shlex
 
 # Funciones para extraer fotogramas y audio para enviar a Gemini
-
-def extract_frames_from_video(video_path: str, num_frames: int = 5) -> List[str]:
-    """
-    Extrae fotogramas representativos del video y los convierte a base64 para enviar a Gemini.
-    
-    Args:
-        video_path: Ruta al archivo de video
-        num_frames: Número de fotogramas a extraer
-        
-    Returns:
-        Lista de strings base64 de los fotogramas
-    """
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(f"El archivo de video no existe: {video_path}")
-    
-    try:
-        # Abrir el video con OpenCV
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise Exception(f"No se pudo abrir el video: {video_path}")
-        
-        # Obtener información del video
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        duration = total_frames / fps if fps > 0 else 0
-        
-        # Calcular posiciones para frames equidistantes
-        frame_positions = []
-        if total_frames <= num_frames:
-            frame_positions = list(range(total_frames))
-        else:
-            # Distribuir los frames a lo largo del video
-            for i in range(num_frames):
-                pos = int(i * total_frames / num_frames)
-                frame_positions.append(pos)
-        
-        # Extraer y convertir frames
-        frame_data = []
-        for pos in frame_positions:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
-            ret, frame = cap.read()
-            if not ret:
-                continue
-            
-            # Redimensionar para reducir tamaño
-            frame = cv2.resize(frame, (640, 360))
-            
-            # Convertir a base64
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            frame_b64 = base64.b64encode(buffer).decode('utf-8')
-            frame_data.append(frame_b64)
-        
-        cap.release()
-        return frame_data
-    
-    except Exception as e:
-        print(f"Error extrayendo frames del video: {e}")
-        traceback.print_exc()
-        return []
 
 def extract_audio_sample(video_path: str, output_dir: str, duration: int = 15) -> Optional[str]:
     """
@@ -110,214 +95,153 @@ def extract_audio_sample(video_path: str, output_dir: str, duration: int = 15) -
         traceback.print_exc()
         return None
 
-def get_video_info_for_gemini(video_path: str) -> Dict[str, Any]:
-    """
-    Obtiene información técnica del video para enviar a Gemini
-    
-    Args:
-        video_path: Ruta al archivo de video
-        
-    Returns:
-        Diccionario con información del video
-    """
-    try:
-        # Usar FFprobe para obtener información
-        probe = ffmpeg.probe(video_path)
-        
-        # Extraer información relevante
-        video_info = {
-            "filename": os.path.basename(video_path),
-            "format": probe["format"]["format_name"],
-            "duration": float(probe["format"]["duration"]),
-            "size_bytes": int(probe["format"]["size"]),
-            "bitrate": int(probe["format"].get("bit_rate", 0)),
-            "streams": []
-        }
-        
-        # Información de streams (video, audio)
-        for stream in probe["streams"]:
-            stream_type = stream["codec_type"]
-            stream_info = {
-                "type": stream_type,
-                "codec": stream["codec_name"],
-                "bitrate": int(stream.get("bit_rate", 0))
-            }
-            
-            if stream_type == "video":
-                stream_info.update({
-                    "width": stream["width"],
-                    "height": stream["height"],
-                    "fps": eval(stream.get("r_frame_rate", "0/1"))  # Evaluar fracción
-                })
-            
-            elif stream_type == "audio":
-                stream_info.update({
-                    "channels": stream.get("channels", 0),
-                    "sample_rate": int(stream.get("sample_rate", 0))
-                })
-            
-            video_info["streams"].append(stream_info)
-        
-        return video_info
-    
-    except Exception as e:
-        print(f"Error obteniendo información del video: {e}")
-        traceback.print_exc()
-        return {"error": str(e)}
-
-# Funciones principales para interactuar con Gemini
-
 def analyze_video_with_gemini(
     video_path: str, 
-    user_prompt: str, 
-    api_key: Optional[str] = None,
+    user_prompt: str,
     num_frames: int = 5,
     temp_dir: Optional[str] = None
 ) -> Dict[str, Any]:
-    """
-    Envía frames del video y el audio a Gemini para análisis
-    
-    Args:
-        video_path: Ruta al archivo de video
-        user_prompt: Instrucción o pregunta del usuario
-        api_key: API key de Google Gemini (o usar variable de entorno)
-        num_frames: Número de frames a extraer
-        temp_dir: Directorio temporal para archivos intermedios
-        
-    Returns:
-        Respuesta de Gemini con análisis y comandos FFmpeg
-    """
-    if not os.path.exists(video_path):
-        return {"error": f"El archivo de video no existe: {video_path}"}
-    
-    # Usar API key proporcionada o de variable de entorno
-    if api_key:
-        genai.configure(api_key=api_key)
-    elif "GOOGLE_API_KEY" in os.environ:
-        genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    else:
-        # HARDCODED API KEY
-        api_key = "AIzaSyAPSwI9DbhxOR4OBMH7TMYB0ZYx3veUigY"
-        genai.configure(api_key=api_key)
-        print("Utilizando API key hardcoded para Gemini")
-    
-    # Crear directorio temporal si no se proporciona
-    if not temp_dir:
-        temp_dir = tempfile.mkdtemp()
-    
+    """Analiza video usando Gemini"""
     try:
-        # 1. Extraer frames del video
-        frames = extract_frames_from_video(video_path, num_frames)
+        # Extraer frames usando el nuevo handler
+        frames = extract_frames(video_path, num_frames)
         if not frames:
-            return {"error": "No se pudieron extraer frames del video"}
-        
-        # 2. Obtener información técnica del video
-        video_info = get_video_info_for_gemini(video_path)
-        
-        # 3. Preparar prompt para Gemini con las imágenes
-        system_prompt = """
-        Eres un asistente especializado en procesamiento y edición de video utilizando FFmpeg.
-        
-        Te voy a proporcionar:
-        1. Varios fotogramas de un video
-        2. Información técnica del video
-        3. Una solicitud de edición o análisis
-        
-        INSTRUCCIONES:
-        - Analiza los fotogramas para entender el contenido del video
-        - Observa las características técnicas del video
-        - Interpreta la solicitud del usuario y genera la respuesta apropiada
-        - Si la solicitud implica editar el video, DEBES proporcionar un comando FFmpeg completo y detallado
-        
-        TU RESPUESTA DEBE TENER ESTE FORMATO (en JSON):
-        {
-            "análisis": "Descripción breve de lo que observas en el video",
-            "evaluación_técnica": "Evaluación de la calidad técnica del video",
-            "recomendación": "Tu recomendación basada en la solicitud",
-            "comandos_ffmpeg": [
-                {
-                    "descripción": "Explicación de lo que hace este comando",
-                    "comando": "Comando FFmpeg completo",
-                    "parámetros": {
-                        // Explicación de los parámetros principales utilizados
-                    }
-                }
-            ]
-        }
-        
-        Si el usuario pide un efecto específico que FFmpeg puede realizar, SIEMPRE incluye el comando correspondiente.
-        """
-        
-        human_prompt = f"""
-        FOTOGRAMAS DEL VIDEO: Te estoy mostrando {len(frames)} fotogramas representativos del video.
-        
-        INFORMACIÓN TÉCNICA DEL VIDEO:
-        {json.dumps(video_info, indent=2)}
-        
-        SOLICITUD DEL USUARIO:
-        "{user_prompt}"
-        
-        Responde con el JSON solicitado, incluyendo análisis y comandos FFmpeg necesarios.
-        """
-        
-        # 4. Configurar modelo y configuración
-        model = genai.GenerativeModel(
-            "gemini-1.5-pro",
-            generation_config=GenerationConfig(
-                temperature=0.2,
-                max_output_tokens=4096,
-            )
-        )
-        
-        # 5. Preparar la solicitud con contenido mixto (texto + imágenes)
-        contents = [
-            {"role": "user", "parts": [{"text": system_prompt}]},
-        ]
-        
-        # Añadir imágenes al contenido
-        parts = [{"text": human_prompt}]
-        for i, frame in enumerate(frames):
-            parts.append({
-                "inline_data": {
-                    "mime_type": "image/jpeg",
-                    "data": frame
-                }
-            })
-        
-        contents.append({"role": "user", "parts": parts})
-        
-        # 6. Generar respuesta
-        response = model.generate_content(contents)
-        
-        # 7. Procesar la respuesta
-        if not response.candidates or not response.candidates[0].content.parts:
-            return {"error": "Gemini no generó una respuesta válida"}
-        
-        response_text = response.candidates[0].content.parts[0].text
-        
-        # 8. Intentar parsear JSON de la respuesta
-        try:
-            # Buscar JSON en la respuesta
-            json_str = response_text
-            if "```json" in response_text:
-                json_start = response_text.find("```json") + 7
-                json_end = response_text.find("```", json_start)
-                json_str = response_text[json_start:json_end].strip()
-            elif "```" in response_text:
-                json_start = response_text.find("```") + 3
-                json_end = response_text.find("```", json_start)
-                json_str = response_text[json_start:json_end].strip()
+            return {"error": "No se pudieron extraer frames"}
             
-            result = json.loads(json_str)
-            return result
-        except json.JSONDecodeError:
-            # Si hay error, devolver la respuesta tal cual
-            return {"texto": response_text, "error_json": "No se pudo parsear como JSON"}
-    
+        # Obtener info del video
+        video_info = get_video_info(video_path)
+        
+        # Usar API key proporcionada o de variable de entorno
+        if api_key:
+            genai.configure(api_key=api_key)
+        elif "GOOGLE_API_KEY" in os.environ:
+            genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+        else:
+            # HARDCODED API KEY
+            api_key = "AIzaSyAPSwI9DbhxOR4OBMH7TMYB0ZYx3veUigY"
+            genai.configure(api_key=api_key)
+            print("Utilizando API key hardcoded para Gemini")
+        
+        # Crear directorio temporal si no se proporciona
+        if not temp_dir:
+            temp_dir = tempfile.mkdtemp()
+        
+        try:
+            # 1. Extraer frames del video
+            frames = extract_frames_from_video(video_path, num_frames)
+            if not frames:
+                return {"error": "No se pudieron extraer frames del video"}
+            
+            # 2. Obtener información técnica del video
+            video_info = get_video_info_for_gemini(video_path)
+            
+            # 3. Preparar prompt para Gemini con las imágenes
+            system_prompt = """
+            Eres un asistente especializado en procesamiento y edición de video utilizando FFmpeg.
+            
+            Te voy a proporcionar:
+            1. Varios fotogramas de un video
+            2. Información técnica del video
+            3. Una solicitud de edición o análisis
+            
+            INSTRUCCIONES:
+            - Analiza los fotogramas para entender el contenido del video
+            - Observa las características técnicas del video
+            - Interpreta la solicitud del usuario y genera la respuesta apropiada
+            - Si la solicitud implica editar el video, DEBES proporcionar un comando FFmpeg completo y detallado
+            
+            TU RESPUESTA DEBE TENER ESTE FORMATO (en JSON):
+            {
+                "análisis": "Descripción breve de lo que observas en el video",
+                "evaluación_técnica": "Evaluación de la calidad técnica del video",
+                "recomendación": "Tu recomendación basada en la solicitud",
+                "comandos_ffmpeg": [
+                    {
+                        "descripción": "Explicación de lo que hace este comando",
+                        "comando": "Comando FFmpeg completo",
+                        "parámetros": {
+                            // Explicación de los parámetros principales utilizados
+                        }
+                    }
+                ]
+            }
+            
+            Si el usuario pide un efecto específico que FFmpeg puede realizar, SIEMPRE incluye el comando correspondiente.
+            """
+            
+            human_prompt = f"""
+            FOTOGRAMAS DEL VIDEO: Te estoy mostrando {len(frames)} fotogramas representativos del video.
+            
+            INFORMACIÓN TÉCNICA DEL VIDEO:
+            {json.dumps(video_info, indent=2)}
+            
+            SOLICITUD DEL USUARIO:
+            "{user_prompt}"
+            
+            Responde con el JSON solicitado, incluyendo análisis y comandos FFmpeg necesarios.
+            """
+            
+            # 4. Configurar modelo y configuración
+            model = genai.GenerativeModel(
+                "gemini-1.5-pro",
+                generation_config=GenerationConfig(
+                    temperature=0.2,
+                    max_output_tokens=4096,
+                )
+            )
+            
+            # 5. Preparar la solicitud con contenido mixto (texto + imágenes)
+            contents = [
+                {"role": "user", "parts": [{"text": system_prompt}]},
+            ]
+            
+            # Añadir imágenes al contenido
+            parts = [{"text": human_prompt}]
+            for i, frame in enumerate(frames):
+                parts.append({
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": frame
+                    }
+                })
+            
+            contents.append({"role": "user", "parts": parts})
+            
+            # 6. Generar respuesta
+            response = model.generate_content(contents)
+            
+            # 7. Procesar la respuesta
+            if not response.candidates or not response.candidates[0].content.parts:
+                return {"error": "Gemini no generó una respuesta válida"}
+            
+            response_text = response.candidates[0].content.parts[0].text
+            
+            # 8. Intentar parsear JSON de la respuesta
+            try:
+                # Buscar JSON en la respuesta
+                json_str = response_text
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_str = response_text[json_start:json_end].strip()
+                elif "```" in response_text:
+                    json_start = response_text.find("```") + 3
+                    json_end = response_text.find("```", json_start)
+                    json_str = response_text[json_start:json_end].strip()
+                
+                result = json.loads(json_str)
+                return result
+            except json.JSONDecodeError:
+                return {"texto": response_text, "error_json": "No se pudo parsear como JSON"}
+        
+        except Exception as e:
+            print(f"Error en análisis de video con Gemini: {e}")
+            traceback.print_exc()
+            return {"error": f"Error en análisis: {str(e)}"}
+        
     except Exception as e:
-        print(f"Error en análisis de video con Gemini: {e}")
-        traceback.print_exc()
-        return {"error": f"Error en análisis: {str(e)}"}
+        logger.error(f"Error en análisis: {e}")
+        return {"error": str(e)}
 
 def execute_gemini_ffmpeg_command(command_info: Dict[str, Any], input_path: str, output_dir: str) -> Tuple[str, Optional[str]]:
     """
@@ -571,4 +495,64 @@ def process_video_with_gemini(
         error_msg = f"Error en process_video_with_gemini: {str(e)}"
         print(error_msg)
         traceback.print_exc()
-        return error_msg, None, {"error": error_msg} 
+        return error_msg, None, {"error": error_msg}
+
+import os
+from typing import List, Dict, Any, Optional
+import google.generativeai as genai
+from .video_processor import extract_frames, get_video_info
+
+def process_video_with_gemini(video_path: str, interval_secs: int = 5) -> Dict[str, Any]:
+    """Procesa el video y extrae frames para análisis"""
+    try:
+        # Extraer frames
+        frames = extract_frames(video_path, interval_secs)
+        if not frames:
+            return {"error": "No se pudieron extraer frames"}
+            
+        # Obtener info del video
+        video_info = get_video_info(video_path)
+        
+        return {
+            "frames": frames,
+            "video_info": video_info
+        }
+    except Exception as e:
+        return {"error": f"Error procesando video: {str(e)}"}
+
+def analyze_video_with_gemini(frames: List[str], prompt: str = "") -> Dict[str, Any]:
+    """Analiza los frames con Gemini"""
+    try:
+        # Configurar Gemini
+        if "GOOGLE_API_KEY" in os.environ:
+            genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+        
+        # Crear modelo
+        model = genai.GenerativeModel("gemini-pro-vision")
+        
+        # Crear modelo
+        model = genai.GenerativeModel("gemini-pro-vision")
+        
+        # Preparar contenido
+        contents = []
+        for frame in frames:
+            contents.append({
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": frame
+                }
+            })
+            
+        # Generar análisis
+        response = model.generate_content([
+            {"text": prompt or "Analiza este video y describe lo que ves"},
+            *contents
+        ])
+        
+        return {
+            "análisis": response.text,
+            "frames_analizados": len(frames)
+        }
+        
+    except Exception as e:
+        return {"error": f"Error en análisis: {str(e)}"}
