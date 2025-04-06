@@ -3,7 +3,10 @@ streamlit==1.32.0
 python-dotenv==1.0.1
 
 # Image processing
-Pillow==10.0.0
+pillow==10.0.0
 
 # AI
 google-generativeai==0.3.2
+
+# Video processing
+ffmpeg-python==0.2.0
