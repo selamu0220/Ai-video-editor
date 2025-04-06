@@ -1,15 +1,51 @@
 import os
-import tempfile
-import time
+import sys
+from pathlib import Path
+import logging
 import streamlit as st
+import tempfile
 import threading
-from typing import Dict, Any, List, Optional, Tuple
-import uuid
-import base64
-import traceback
 
-# Importaciones necesarias
-from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Verificar dependencias necesarias
+try:
+    from utils.video_handler import extract_frames, get_video_info
+    from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
+except ImportError as e:
+    st.error(f"Error importando dependencias: {str(e)}")
+    logger.error(f"Error de importación: {e}")
+    sys.exit(1)
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Asegurarse que el directorio raíz está en el path
+current_dir = Path(__file__).parent
+sys.path.append(str(current_dir))
+
+# Inicializar utils
+try:
+    from utils import ensure_dependencies
+    ensure_dependencies()
+except Exception as e:
+    logger.error(f"Error inicializando dependencias: {e}")
+    st.error("Error inicializando dependencias. Por favor, revise los logs.")
+    sys.exit(1)
+
+try:
+    from utils.gemini_video_analyzer import install_system_dependencies, process_video_with_gemini, analyze_video_with_gemini
+    
+    # Intentar instalar dependencias del sistema si es necesario
+    if not os.path.exists("/usr/lib/x86_64-linux-gnu/libGL.so.1"):
+        logger.info("Instalando dependencias del sistema...")
+        install_system_dependencies()
+except Exception as e:
+    st.error(f"Error inicializando el sistema: {str(e)}")
+    sys.exit(1)
+
 from utils.video_processor import get_video_info, get_video_thumbnail
 
 # Set up page configuration
