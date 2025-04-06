@@ -6,6 +6,11 @@ import shutil
 import json
 import shlex # For safe command line argument splitting
 from typing import Tuple, Dict, List, Any, Optional
+from moviepy.editor import VideoFileClip
+from PIL import Image
+import io
+import base64
+import numpy as np
 
 # Still need pydub for silence detection
 from pydub import AudioSegment, silence
@@ -610,3 +615,30 @@ def get_video_thumbnail(video_path: str, time_sec: float = 1.0, output_dir: Opti
         print(f"Error generating thumbnail with FFmpeg: {e}")
         # REMOVED Moviepy fallback logic
         return None
+
+def extract_frames(video_path: str, interval_secs: int = 5) -> List[str]:
+    """Extrae frames del video cada N segundos"""
+    frames = []
+    with VideoFileClip(video_path) as clip:
+        duration = clip.duration
+        for t in range(0, int(duration), interval_secs):
+            frame = clip.get_frame(t)
+            # Convertir a PIL y redimensionar
+            img = Image.fromarray(frame)
+            img = img.resize((640, 360))
+            # Convertir a base64
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            img_str = base64.b64encode(buffer.getvalue()).decode()
+            frames.append(img_str)
+    return frames
+
+def get_video_info(video_path: str) -> Dict[str, Any]:
+    """Obtiene metadata del video"""
+    with VideoFileClip(video_path) as clip:
+        return {
+            "duration": clip.duration,
+            "width": clip.w,
+            "height": clip.h,
+            "fps": clip.fps
+        }
