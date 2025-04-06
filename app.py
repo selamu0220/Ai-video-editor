@@ -6,32 +6,20 @@ import streamlit as st
 import tempfile
 import threading
 
+# Configuración básica
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Verificar dependencias necesarias de manera más robusta
-def check_dependencies():
-    try:
-        from utils.video_handler import extract_frames, get_video_info
-        from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
-        return True
-    except ImportError as e:
-        st.error(f"Error importando dependencias: {str(e)}")
-        logger.error(f"Error de importación: {e}")
-        return False
-
-# Asegurarse que el directorio raíz está en el path
+# Asegurar que el directorio utils está en el path
 current_dir = Path(__file__).parent
 sys.path.append(str(current_dir))
 
-# Verificar dependencias antes de continuar
-if not check_dependencies():
-    st.error("Error crítico: No se pudieron cargar las dependencias necesarias")
+# Importar dependencias de manera segura
+try:
+    from utils.video_utils import extract_frames, get_video_info
+except ImportError as e:
+    st.error(f"Error importando módulo de video: {e}")
     st.stop()
-
-# Importar después de verificar
-from utils.video_handler import extract_frames, get_video_info
-from utils.gemini_video_analyzer import process_video_with_gemini, analyze_video_with_gemini
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
